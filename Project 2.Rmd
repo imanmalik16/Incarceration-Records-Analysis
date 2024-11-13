@@ -1,0 +1,232 @@
+---
+title: "Incarceration Records"
+author: "Iman Malik"
+date: "2024-10-30"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+```{r global_options, include=FALSE}
+# The following code is a basic setup of options for your document
+knitr::opts_chunk$set(echo = FALSE,
+                      eval = TRUE, 
+                      warning = FALSE,
+                      message = FALSE,
+                      fig.align = "center")
+```
+
+## 1. Introduction
+
+[This dataset](https://data.texas.gov/dataset/High-Value-Dataset-July-2024/qz8r-du54/about_data) examines incarceration records from Travis County, Texas, in July 2024, obtained from the [Texas Open Data Portal](https://data.texas.gov/), a public resource offering datasets on a wide range of state-related information. The dataset provides information about inmates and their demographics, offense details, sentence dates and lengths, and also additional information including SID numbers, TDCJ numbers, offense dates, and parole details. I chose this dataset to investigate patterns in incarceration within a specific county. I will be focusing on demographic distributions, offense types, and sentencing trends. I will be analyzing relationships between demographic factors, case types, and sentencing outcomes.
+
+![](inmates.jpg){width="385"}
+
+Image source: [Talks on Law](https://www.talksonlaw.com/talks/confronting-mass-incarceration)
+
+## 2. Data Preparation
+
+```{r}
+library(tidyverse)
+inmates_data <- read_csv("Currently_Incarcerated_July2024.csv")
+```
+
+I downloaded the CSV file for this data from the Texas Open Data Portal-- it was already in a downloadable format, no scraping necessary. There were some variables that I did not want to include, so in my final subset I made sure to only select the variables I needed. I also wanted to only look at inmates who offended in Travis County, so I filtered the data to include only those observations. There were 2 dates in the dataset, so I parsed those into date variables I could more easily work with to create a new numeric variable. I also created a new variable by manipulating an existing string variable. There were some NA date values, and they caused some NA values for my new numeric variable, but I did not take them out because R automatically removed them to make a scatterplot, and I still wanted to use those observations and examine the other non-NA variables for them. A challenge I faced was figuring out what to do with non-numeric Sentence values and special cases, but I ultimately decided to remove those observations all together to have a more cohesive analysis.
+
+## 3. Variable Descriptions
+
+```{r}
+inmates <- inmates_data |>
+  # filter to only Travis county offenders and select only wanted variables
+  filter(County == "Travis") |>
+  select(Name, Gender, Age, Race,
+         Offense = `TDCJ Offense`,
+         `Sentence Date`, `Projected Release`,
+         Sentence = `Sentence (Years)`) |>
+  # filter out any non-numeric sentences
+  filter(!str_detect(Sentence, "^[a-zA-Z]")) |>
+  # parse dates into date variables readable by R
+  mutate(`Sentence Date` = mdy(`Sentence Date`),
+         `Projected Release` = mdy(`Projected Release`),
+         Sentence = as.numeric(Sentence), # make sentence numeric
+         Estimated_Sentence = round(as.numeric(difftime(`Projected Release`,
+          `Sentence Date`, units = "days"))/365, 1)) |> # create new variable
+  # filter out special cases
+  filter(Sentence <= 100) |>
+  # recode race and gender letters to the entire word
+  mutate(Race = recode(Race,
+                       `A` = "Asian American",
+                       `B` = "Black",
+                       `H` = "Hispanic",
+                       `I` = "American Indian or Alaskan Native",
+                       `O` = "Other", `U` = "Other",
+                       `W` = "White"),
+         Gender = recode(Gender,
+                         `M` = "Male", `F` = "Female")) |>
+  # create a new variable for whether the offense was a murder or not
+  mutate(Murder = str_detect(Offense, pattern = "MURDER") | str_detect(Offense,
+  pattern = "MANSLAUGHTER")) |>
+  # recode Murder variable to show yes or no instead of a logical
+  mutate(Murder = ifelse(Murder == TRUE, "Yes", "No")) 
+```
+
+| Variable Name      | Type      | Description                                                                                                                                            |
+|------------------|------------------|-------------------------------------|
+| Name               | Character | The name of the inmate                                                                                                                                 |
+| Gender             | Character | The gender of the inmate                                                                                                                               |
+| Age                | Numeric   | The current age of the inmate                                                                                                                          |
+| Race               | Character | The race of the inmate                                                                                                                                 |
+| Offense            | Character | The crime committed by the inmate                                                                                                                      |
+| Sentence Date      | Date      | The date that the inmate was sentenced to prison                                                                                                       |
+| Projected Release  | Date      | The estimated date the inmate will be released from prison                                                                                             |
+| Sentence           | Numeric   | The length of time, in years, that the inmate is serving in prison                                                                                     |
+| Estimated Sentence | Numeric   | The estimated length of time, in years, that the inmate will serve in prison, calculated by the difference between Sentence Date and Projected Release |
+| Murder             | Character | States whether a case is a murder case or not                                                                                                          |
+
+## 4. Univariate Analyses
+
+```{r}
+# Distribution of age 
+inmates |>
+  ggplot() + geom_histogram(aes(x = Age), color = 'black', fill = 'pink3') + labs(
+    title = "Distribution of Age",
+    caption = "Data obtained from the Texas Open Data Portal")
+```
+
+The distribution of age is slightly right-skewed, with a mean of `r round(mean(inmates$Age), 3)` and a median of `r median(inmates$Age)`. These two values are close together, indicating the distribution is somewhat balanced. The spread is described by the standard deviation, `r round(sd(inmates$Age), 3)`, and the interquartile range, `r IQR(inmates$Age)`.
+
+```{r}
+# Distribution of murder cases
+inmates |>
+  ggplot() + geom_bar(aes(x = Murder, fill = Murder)) + labs(
+    title = "Distribution of Murder Cases",
+    caption = "Data obtained from the Texas Open Data Portal") +
+  scale_fill_brewer(palette = "Accent")
+```
+
+```{r, include = FALSE}
+# Descriptive statistics - show proportions
+round(prop.table(table(inmates$Murder)), 3)
+```
+A majority of cases for inmates from Travis County are not murder cases. Only 16.6% of cases are murder cases, while 83.4% of cases are non-murder cases.
+
+```{r}
+# Distribution of races 
+inmates |> 
+  ggplot() + geom_bar(aes(x = Race, fill = Race)) + labs(
+    title = "Distribution of Races",
+    caption = "Data obtained from the Texas Open Data Portal") +
+  scale_fill_brewer(palette = "Dark2")
+```
+
+```{r, include = FALSE}
+# Descriptive statistics - show proportions
+round(prop.table(table(inmates$Race)), 3)
+```
+
+From Travis County, 42.1% of inmates are Hispanic, 34.1% of inmates are Black, 23.1% of inmates are White, 0.6% of inmates are Asian American, and 0.2% of inmates are another race.
+
+```{r}
+# Distribution of sentences
+inmates |>
+  ggplot() + geom_histogram(aes(x = Sentence), color = 'black', fill = 'cyan3') + labs(
+    title = "Distribution of Administered Sentences",
+    caption = "Data obtained from the Texas Open Data Portal",
+    x = "Sentence (years)")
+```
+
+The distribution of sentence length in years is right-skewed, with a mean of `r round(mean(inmates$Sentence), 3)` and a median of `r median(inmates$Sentence)`. The large spread is described by the standard deviation, `r round(sd(inmates$Age), 3)`, and the interquartile range, `r IQR(inmates$Age)`.
+
+## 5. Bivariate Analyses
+
+```{r}
+# Sentence and Estimated Sentence
+inmates |>
+  ggplot() + geom_point(aes(x = Sentence, y = `Estimated_Sentence`), color = 'purple4') + labs(
+    title = "Relationship between Administered Sentence and Estimated Sentence",
+    caption = "Data obtained from the Texas Open Data Portal",
+    x = "Administered Sentence (years)", y = "Estimated Sentence (years)")
+```
+
+The plots follow a linear pattern with some deviations. The correlation coefficient for the relationship between administered sentences and estimated sentences is `r round(cor(inmates$Sentence, inmates$Estimated_Sentence, use = "complete.obs"), 3)`. This indicates a strong, positive correlation. So typically, the estimated sentence that an inmate serves will closely match the length of time administered to them at their sentencing.
+
+```{r}
+# Sentence and Murder
+inmates |>
+  ggplot() + geom_boxplot(aes(x = Murder, y = Sentence, fill = Murder)) +
+  labs(
+    title = "Distribution of Sentences for Murder and Non-Murder Crimes",
+    caption = "Data obtained from the Texas Open Data Portal",
+    x = "Murder Case", y = "Sentence (years)",
+    fill = "Murder Case") +
+  scale_fill_brewer(palette = "Accent")
+```
+
+As shown by the boxplots, murder cases have a higher median sentence than non-murder cases. Non-murder cases have more outliers due to the variety in the type of cases, but murder cases have a larger maximum of over 75 years (not including outliers). Murder cases also have a larger minimum sentence than non-murder cases.
+
+```{r}
+# Race and Murder
+inmates |>
+  ggplot() + geom_bar(aes(x = Murder, fill = Race), position = "fill") +
+  labs(
+    title = "Distribution of Races for Murder and Non-Murder Crimes",
+    caption = "Data obtained from the Texas Open Data Portal",
+    x = "Murder case", y = "Proportion",
+    fill = "Race") +
+  scale_fill_brewer(palette = "Dark2")
+```
+
+```{r, include = FALSE}
+# Descriptive statistics - show proportions
+round(prop.table(table(inmates$Race, inmates$Murder, dnn = c("Race", "Murder")), 2), 3)
+```
+
+From Travis County, the race group that makes up the most population of inmates is Hispanic, at 42.8% for non-murder cases and 38.7% for murder cases. The percentage of white inmates increases for murder cases, from 22.3% to 26.8%. This is also the case for Asian Americans (0.5% to 0.6%) and inmates of other race groups (0.2% to 0.3%). Meanwhile, the Hispanic proportion goes down from 42.8% to 38.7%, as well as the Black population, which decreases from 34.2% to 33.4%.
+
+```{r}
+# Gender and Murder
+inmates |>
+  ggplot() + geom_bar(aes(x = Murder, fill = Gender), position = "fill") +
+  labs(
+    title = "Distribution of Genders for Murder and Non-Murder Crimes",
+    caption = "Data obtained from the Texas Open Data Portal",
+    x = "Murder case", y = "Proportion",
+    fill = "Gender") +
+  scale_fill_brewer(palette = "Set1")
+```
+
+```{r, include = FALSE}
+# Descriptive statistics - show proportions
+round(prop.table(table(inmates$Gender, inmates$Murder, dnn = c("Gender", "Murder")), 2), 3)
+```
+
+For non-murder cases, females make up 3.3% of them while males make up 96.7% of them. Meanwhile, for murder cases, females make up more of the percentage at 7.4%, while males make up 92.6% of them.
+
+```{r}
+# Multivariate analysis: Age, Sentence, Murder
+inmates|>
+  ggplot() + geom_point(aes(x = Age, y = Sentence, color = Murder)) + labs(
+    title = "Relationship between Age and Sentence, colored by Murder Case",
+    caption = "Data obtained from the Texas Open Data Portal",
+    x = "Age (years)", y = "Sentence (years)")
+```
+
+There seems to not be much of a relationship between sentence and age. However, the graph shows clumps of red plots at the bottom while the blue plots are scattered more upwards, indicating that murder cases typically get higher sentences than non-murder cases. Additionally, some older inmates have higher sentences, which could be attributed to the fact that they have been there for decades.  
+
+## 6. Reproducibility Resources
+
+All files needed to reproduce this report can be found on [my Github repository](https://github.com/imanmalik16/Project-2-Incarceration-Records).
+
+## 7. Choice Elements
+
+For my choice elements, I used in-line code throughout my report for descriptive statistics. I implemented this to show specific values for my statistics and integrate it into my report, rather than generating code output. I parsed the *Sentence Date* and *Projected Release* dates into date variables that R could easily read. I did this so I could better measure the dates and use it to create a new variable. I also formatted string values from *Offense*, and I did this by detecting certain words in order to make a new variable. I created two new variables: *Estimated_Sentence* (I created this by finding the difference in time in years between the sentencing date and the projected release date) and *Murder* (I created this by using string manipulation to detect "Murder" and "Manslaughter" to determine whether a case was a murder case or not). At the end of my bivariate analyses, I made a multivariate plot including *Age*, *Sentence*, and *Murder*. I did this to analyze whether there was a relationship between the age of inmates and their sentences based on whether they were convicted of a murder crime or not.
+
+## 8. Conclusion
+
+By analyzing the incarceration records for Travis County, I noticed several patterns. The age distribution of inmates is moderately balanced yet slightly right-skewed, indicating a predominance of younger to middle-aged individuals. A majority of cases were non-murder crimes. Racial disparities were evident, as Hispanic and Black individuals together made up over 75% of inmates, possibly reflecting systemic influences or a higher population of minorities in Travis County. Sentence lengths had a right-skewed distribution, though a few outliers significantly extended the distribution. Murder cases also had longer sentence lengths and larger minimum lengths, which is expected. Additionally, I analyzed a relationship between administered sentence length and estimated time served, suggesting that projected release date calculations tend to be accurate; however, there are some cases in which inmates served longer or shorter sentences, and this could be attributed to behavior or parole. These results align with trends in demographic and sentence length distributions.
+
+## 9. References
+
+[Texas Open Data Portal](https://data.texas.gov/), [Racial Disparity in Imprisonment](https://www.sentencingproject.org/publications/one-in-five-racial-disparity-in-imprisonment-causes-and-remedies/), [Definitions & Acronyms](https://www.tdcj.texas.gov/definitions/index.html#:~:text=Projected%20Release%20Date.,offense%20title%20and%20offense%20date.), [Talks on Law](https://www.talksonlaw.com/talks/confronting-mass-incarceration)
