@@ -1,4 +1,4 @@
-# Project 2 - Incarceration Records
+# Incarceration Records Analysis
 
 This report analyzes data about incarcerations records for inmates from Travis County as of July 2024. 
 
